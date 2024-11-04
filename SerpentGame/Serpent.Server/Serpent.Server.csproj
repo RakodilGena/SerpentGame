@@ -14,7 +14,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="GameProcessers\" />
+      <Folder Include="GameProcessors\Models\" />
       <Folder Include="Gateway\ExceptionFilters\" />
       <Folder Include="Gateway\Exceptions\" />
       <Folder Include="UserRecords\" />
