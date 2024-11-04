@@ -1,8 +1,13 @@
 ﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Serpent.Server.GameProcessors.GameSessions;
+using Serpent.Server.GameProcessors.Models.Consumables;
+using Serpent.Server.GameProcessors.Models.Consumables.Concrete;
+using Serpent.Server.GameProcessors.Models.Consumables.Events;
 using Serpent.Server.GameProcessors.Models.GameSettings;
 using Serpent.Server.GameProcessors.Models.Snakes.Commands;
+using Serpent.Server.GameProcessors.Models.Snakes.Events.ConsumeChecks;
+using Serpent.Server.GameProcessors.Models.Snakes.Events.WallCollisions;
 using Serpent.Server.GameProcessors.Models.Snakes.Segments;
 using Serpent.Server.GameProcessors.Models.Snakes.Segments.Base;
 using Serpent.Server.GameProcessors.Models.Snakes.Segments.Directions;
@@ -17,8 +22,10 @@ internal sealed class SnakeDomain
     private SnakeDirectionTypeDomain _direction;
     
     private const int MinSegmentsInBody = 3;
+    public event WallCollisionCheckHandler? WallCollisionCheck;
 
-    public event EventHandler? CollisionHappened;
+    public event EventHandler? BodyCollided;
+    public event ConsumeCheckHandler? ConsumeCheck;
 
     public SnakeDomain(
         SnakeHeadSegmentDomain head,
@@ -28,81 +35,91 @@ internal sealed class SnakeDomain
         _head = head;
         _body = body;
         _tail = tail;
-        _direction = head.Direction;
+        _direction = _head.Direction;
     }
 
-    public void Move(SnakeMoveNoEatCommand command)
+    public void Move(UserInputDomain userInput)
+    {
+        _direction = GetNewDirection(userInput);
+        
+        //got direction. now get new head position
+        var success = TryGetNewHeadPosition(
+            out var x, 
+            out var y);
+
+        if (!success)
+            return;
+        
+        var newHeadPosition = new NewHeadPosition(x, y);
+        
+        //if not dead, check whether snake ate something
+        var consumeResult = CheckIfSomethingConsumed(newHeadPosition);
+
+        //depending on the result decide method to move.
+        switch (consumeResult.SegmentsDiff)
+        {
+            case 0:
+                MoveNoEaten(newHeadPosition);
+                return;
+            
+            case > 0:
+                MoveEatenApple(newHeadPosition);
+                return;
+            
+            case < 0:
+                var segmentsToCut = -consumeResult.SegmentsDiff;
+                MoveEatenScissors(newHeadPosition, segmentsToCut);
+                break; 
+        }
+    }
+
+    private void MoveNoEaten(NewHeadPosition newHeadPosition)
     {
         MoveTail();
-        MoveBody(nextHeadDirection: command.Direction);
-        
-        var success = TryMoveHead(
-            command.FieldSettings, 
-            command.Direction);
-
-        //collided with walls
-        if (!success)
-        {
-            InvokeCollision();
-            return;
-        }
-
-        success = EnsureHeadNotCollidedBody();
-        if (success) 
-            return;
-        
-        //collided with body
-        InvokeCollision();
+        MoveBody();
+        MoveHead(newHeadPosition);
+        CheckIfHeadNotCollidedBody();
     }
 
-    private bool EnsureHeadNotCollidedBody()
+    private void CheckIfHeadNotCollidedBody()
     {
         Span<(int x, int y)> collisionSpan =
         [
             .._body.Select(segment => (segment.X, segment.Y)),
             (_tail.X, _tail.Y)
         ];
-        return collisionSpan.Contains((_head.X, _head.Y)) is false;
+        
+        var collided =collisionSpan.Contains((_head.X, _head.Y));
+        
+        if (collided)
+            BodyCollided?.Invoke(this, EventArgs.Empty);
+        
+        //todo log collide
     }
 
-    public void Move(SnakeMoveEatSnackCommand command)
+    private void MoveEatenApple(NewHeadPosition newHeadPosition)
     {
         //dont move body and tail, enlarge snake with 1 segment.
-        var direction = GetDirectionForSegmentFollowingHead(command.Direction);
+        var direction = GetDirectionForSegmentFollowingHead();
         var newSegment = new SnakeBodySegmentDomain(_head, direction);
         
-        var success = TryMoveHead(
-            command.FieldSettings, 
-            command.Direction);
-        
-        //collided with walls
-        if (!success)
-        {
-            InvokeCollision();
-            return;
-        }
-        
-        //no collision, enlarge body with new segment
+        //no body collision possible, enlarge body with new segment
         _body.Insert(0, newSegment);
+        
+        MoveHead(newHeadPosition);
     }
 
-    private void Move(SnakeMoveEatScissorsCommand command)
+    private void MoveEatenScissors(NewHeadPosition newHeadPosition, int segmentsToCut)
     {
+        Debug.Assert(segmentsToCut > 0);
         //cut as many requested segments as possible and do plain move without checking for body collisions.
-        CutBody(command.RequestedSegmentsToCut);
+        CutBody(segmentsToCut);
         
         MoveTail();
-        MoveBody(nextHeadDirection: command.Direction);
+        MoveBody();
+        MoveHead(newHeadPosition);
         
-        var success = TryMoveHead(
-            command.FieldSettings, 
-            command.Direction);
-
-        if (success) 
-            return;
-        
-        //collided with walls
-        InvokeCollision();
+        //no body collision possible
     }
 
     private void CutBody(int requestedSegmentsToCut)
@@ -163,9 +180,8 @@ internal sealed class SnakeDomain
     /// <summary>
     /// Should be launched before head and after tail movement.
     /// </summary>
-    /// <param name="nextHeadDirection"></param>
     /// <exception cref="ArgumentException"></exception>
-    private void MoveBody(SnakeDirectionTypeDomain nextHeadDirection)
+    private void MoveBody()
     {
         ReadOnlySpan<SnakeBodySegmentDomain> span = CollectionsMarshal.AsSpan(_body);
 
@@ -179,16 +195,15 @@ internal sealed class SnakeDomain
         }
 
         var bodyTop = span[0];
-        var bodyTopDirection = GetDirectionForSegmentFollowingHead(nextHeadDirection);
+        var bodyTopDirection = GetDirectionForSegmentFollowingHead();
         bodyTop.SetLocationTo(_head, bodyTopDirection);
     }
 
-    private SnakeBodySegmentDirectionTypeDomain GetDirectionForSegmentFollowingHead(
-        SnakeDirectionTypeDomain nextHeadDirection)
+    private SnakeBodySegmentDirectionTypeDomain GetDirectionForSegmentFollowingHead()
     {
         var prevHeadDirection = _head.Direction;
 
-        return (prevHeadDirection, nextHeadDirection) switch
+        return (prevHeadDirection, _direction) switch
         {
             (SnakeDirectionTypeDomain.Up, SnakeDirectionTypeDomain.Up)
                 => SnakeBodySegmentDirectionTypeDomain.Up,
@@ -222,34 +237,56 @@ internal sealed class SnakeDomain
         };
     }
 
-    /// <summary>
-    /// Should be launched after body and tail movement.
-    /// Checks collision with walls and with the rest of the snake (optionally)
-    /// </summary>
-    /// <param name="fieldSettings"></param>
-    /// <param name="direction"></param>
-    /// <returns></returns>
-    private bool TryMoveHead(
-        FieldSettings fieldSettings,
-        SnakeDirectionTypeDomain direction)
+    private SnakeDirectionTypeDomain GetNewDirection(UserInputDomain input)
     {
-        var success = TryGetNewHeadPosition(fieldSettings, direction, out var x, out var y);
-        if (!success)
-            return false;
+        var direction = _direction;
         
-        _head.Move(x,y, direction);
-        return true;
+        if (input is UserInputDomain.None)
+            return direction;
+
+        if (input
+                is UserInputDomain.Up
+                or UserInputDomain.Down
+            && direction
+                is SnakeDirectionTypeDomain.Up
+                or SnakeDirectionTypeDomain.Down
+            ||
+            input
+                is UserInputDomain.Left
+                or UserInputDomain.Right
+            && direction
+                is SnakeDirectionTypeDomain.Left
+                or SnakeDirectionTypeDomain.Right)
+            return direction;
+
+        return input switch
+        {
+            UserInputDomain.Up => SnakeDirectionTypeDomain.Up,
+            UserInputDomain.Down => SnakeDirectionTypeDomain.Down,
+            UserInputDomain.Left => SnakeDirectionTypeDomain.Left,
+            UserInputDomain.Right => SnakeDirectionTypeDomain.Right,
+            
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(input), 
+                input, 
+                "user input is out of range and pot processed.")
+        };
     }
 
+    /// <summary>
+    /// Returns result whether snake head will collide with walls,
+    /// and new position if everything's OK.
+    /// </summary>
+    /// <param name="x"></param>
+    /// <param name="y"></param>
+    /// <returns></returns>
     private bool TryGetNewHeadPosition(
-        FieldSettings fieldSettings,
-        SnakeDirectionTypeDomain direction,
         out int x, 
         out int y)
     {
         (x, y) = (_head.X, _head.Y);
 
-        switch (direction)
+        switch (_direction)
         {
             case SnakeDirectionTypeDomain.Up:
                 y--;
@@ -265,82 +302,70 @@ internal sealed class SnakeDomain
                 break;
         }
 
-        //check for walls being hit.
-        if (x < 0 || x > fieldSettings.MaxPosition)
+        var args = new WallCollisionCheckEventArgs(x, y);
+        WallCollisionCheck?.Invoke(args);
+        
+        Debug.Assert(args.WallCollisionResult is not null);
+        var collisionResult = args.WallCollisionResult.Value;
+
+        switch (collisionResult.Type)
         {
-            if (fieldSettings.WallsTransparent is false)
-            {
+            case WallCollisionResultTypeDomain.Break:
                 return false;
-            }
-            FixPosition(ref x, fieldSettings.MaxPosition);
-        }
-        else
-        {
-            //else because X and Y can't exceed boundaries simultaneously
-            if (y < 0 || y > fieldSettings.MaxPosition)
-            {
-                if (fieldSettings.WallsTransparent is false)
-                {
-                    return false;
-                }
-                FixPosition(ref y, fieldSettings.MaxPosition);
-            }
+            
+            case WallCollisionResultTypeDomain.Teleport:
+                (x, y) = (collisionResult.NewX, collisionResult.NewY);
+                break;
         }
 
         return true;
     }
 
-    private static void FixPosition(ref int dimension, int maxValue)
+    private ConsumeResult CheckIfSomethingConsumed(NewHeadPosition newHeadPosition)
     {
-        if (dimension < 0)
+        var args = new ConsumeCheckEventArgs(
+            newHeadPosition.X, 
+            newHeadPosition.Y);
+        
+        ConsumeCheck?.Invoke(args);
+
+        if (!args.Processed)
+            return ConsumeResult.None();
+
+        //then check what's eaten
+        return args.CollidedConsumable switch
         {
-            dimension = 0;
-            return;
-        }
+            CommonAppleDomain or GoldenAppleDomain => ConsumeResult.Eaten(),
+            ScissorsDomain s => ConsumeResult.Cut(s.SegmentsToCut),
 
-        Debug.Assert(dimension > maxValue);
-        dimension = maxValue;
-    }
-
-    private void SetNewDirection(UserInputDomain input)
-    {
-        if (input is UserInputDomain.None)
-            return;
-
-        if (input
-                is UserInputDomain.Up
-                or UserInputDomain.Down
-            && _direction
-                is SnakeDirectionTypeDomain.Up
-                or SnakeDirectionTypeDomain.Down
-            ||
-            input
-                is UserInputDomain.Left
-                or UserInputDomain.Right
-            && _direction
-                is SnakeDirectionTypeDomain.Left
-                or SnakeDirectionTypeDomain.Right)
-            return;
-
-        _direction = input switch
-        {
-            UserInputDomain.Up => SnakeDirectionTypeDomain.Up,
-            UserInputDomain.Down => SnakeDirectionTypeDomain.Down,
-            UserInputDomain.Left => SnakeDirectionTypeDomain.Left,
-            UserInputDomain.Right => SnakeDirectionTypeDomain.Right,
-            
             _ => throw new ArgumentOutOfRangeException(
-                nameof(input), 
-                input, 
-                "user input is out of range and pot processed.")
+                nameof(args.CollidedConsumable),
+                args.CollidedConsumable,
+                "consumable type is out of range and can't be processed.")
         };
-
     }
 
-    private void InvokeCollision()
+    /// <summary>
+    /// Should be launched after body and tail movement.
+    /// Checks collision with walls and with the rest of the snake (optionally)
+    /// </summary>
+    /// <returns></returns>
+    private void MoveHead(NewHeadPosition position)
     {
-        CollisionHappened?.Invoke(this, EventArgs.Empty);
+        _head.Move(position.X, position.Y, _direction);
     }
 
     public IReadOnlyList<SnakeSegmentDomain> AllSegments => [_head, .._body, _tail];
+    
+    private readonly record struct NewHeadPosition(int X, int Y);
+    
+    private readonly record struct ConsumeResult(
+        int SegmentsDiff)
+    {
+        public static ConsumeResult None() => new(0);
+
+        public static ConsumeResult Eaten() => new(1);
+
+        public static ConsumeResult Cut(int segmentsToCut) => new(-segmentsToCut);
+    }
 }
