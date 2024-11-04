@@ -16,6 +16,7 @@ internal static class StartGameRequestMapper
         return new StartGameRequestDto(
             request.Username!,
             request.FieldSize.ToDto(),
+            request.GameDifficulty.ToDto(),
             request.WallsTransparent ?? false);
     }
 
@@ -27,6 +28,17 @@ internal static class StartGameRequestMapper
             FieldSize.Large => FieldSizeDto.Large,
 
             _ => FieldSizeDto.Small
+        };
+    }
+
+    private static GameDifficultyDto ToDto(this GameDifficulty? fieldSize)
+    {
+        return fieldSize switch
+        {
+            GameDifficulty.Medium => GameDifficultyDto.Medium,
+            GameDifficulty.Hard => GameDifficultyDto.Hard,
+
+            _ => GameDifficultyDto.Easy,
         };
     }
 }

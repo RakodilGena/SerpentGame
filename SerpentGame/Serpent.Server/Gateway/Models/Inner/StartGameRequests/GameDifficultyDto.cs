@@ -1,6 +1,6 @@
 ﻿namespace Serpent.Server.Gateway.Models.Inner.StartGameRequests;
 
-internal enum GameDifficultyDto
+public enum GameDifficultyDto
 {
     Easy = 0,
     Medium = 1,

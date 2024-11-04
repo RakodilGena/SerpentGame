@@ -1,4 +1,4 @@
-﻿namespace Serpent.Server.GameProcessors.Models.SnakeElements.Segments.Base;
+﻿namespace Serpent.Server.GameProcessors.Models.Snakes.Segments.Base;
 
 internal abstract class SnakeSegmentDomain
 {

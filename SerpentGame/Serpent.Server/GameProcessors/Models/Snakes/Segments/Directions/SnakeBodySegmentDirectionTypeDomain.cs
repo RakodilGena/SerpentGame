@@ -1,4 +1,4 @@
-﻿namespace Serpent.Server.GameProcessors.Models.SnakeElements.Segments.Directions;
+﻿namespace Serpent.Server.GameProcessors.Models.Snakes.Segments.Directions;
 
 internal enum SnakeBodySegmentDirectionTypeDomain
 {

@@ -15,6 +15,10 @@ internal sealed class StartGameRequestValidator : AbstractValidator<StartGameReq
             .IsInEnum()
             .WithMessage("Please specify correct field size");
 
+        RuleFor(x => x.GameDifficulty)
+            .IsInEnum()
+            .WithMessage("Please specify correct difficulty");
+
         RuleFor(x => x.WallsTransparent)
             .NotNull()
             .WithMessage("Please specify walls transparency");

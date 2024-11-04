@@ -1,6 +1,6 @@
-﻿using Serpent.Server.GameProcessors.Models.SnakeElements.Segments.Base;
+﻿using Serpent.Server.GameProcessors.Models.Snakes.Segments.Base;
 
-namespace Serpent.Server.GameProcessors.Models.SnakeElements.Segments;
+namespace Serpent.Server.GameProcessors.Models.Snakes.Segments;
 
 internal sealed class SnakeHeadSegmentDomain : SnakeSegmentOneDirectionDomain
 {

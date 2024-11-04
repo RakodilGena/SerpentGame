@@ -1,4 +1,4 @@
-﻿namespace Serpent.Server.GameProcessors.Models.SnakeElements;
+﻿namespace Serpent.Server.GameProcessors.Models.Snakes;
 
 internal enum SnakeDirectionTypeDomain
 {

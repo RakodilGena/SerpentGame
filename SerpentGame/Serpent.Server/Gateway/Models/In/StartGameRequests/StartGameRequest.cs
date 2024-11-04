@@ -3,4 +3,5 @@
 public sealed record StartGameRequest(
     string? Username,
     FieldSize? FieldSize,
+    GameDifficulty? GameDifficulty,
     bool? WallsTransparent);
