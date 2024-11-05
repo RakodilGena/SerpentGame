@@ -15,6 +15,7 @@
 
     <ItemGroup>
       <Folder Include="GameProcessors\GameSessions\Events\" />
+      <Folder Include="GameProcessors\Services\Impl\" />
       <Folder Include="Gateway\ExceptionFilters\" />
       <Folder Include="Gateway\Exceptions\" />
       <Folder Include="UserRecords\" />

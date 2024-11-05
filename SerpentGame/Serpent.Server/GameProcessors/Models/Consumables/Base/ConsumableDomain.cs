@@ -9,26 +9,24 @@ internal abstract class ConsumableDomain
 {
     public int X { get; }
     public int Y { get; }
-    
-    private readonly int _reward;
 
-    protected ConsumableDomain(int x, int y, int reward)
+    protected ConsumableDomain(int x, int y)
     {
         X = x;
         Y = y;
-        _reward = reward;
     }
 
     public event EventHandler<ConsumedEventArgs>? Consumed;
 
     public void OnConsumeCheck(ConsumeCheckEventArgs consumeCheckEventArgs)
     {
-        if (consumeCheckEventArgs.X != X || consumeCheckEventArgs.Y != Y)
+        //skip check if something already eaten
+        if (consumeCheckEventArgs.Processed || consumeCheckEventArgs.X != X || consumeCheckEventArgs.Y != Y)
             return;
 
         consumeCheckEventArgs.ApplyConsumable(this);
 
-        var consumedEventArgs = new ConsumedEventArgs(GetConsumableType(), _reward);
+        var consumedEventArgs = new ConsumedEventArgs(GetConsumableType());
         Consumed?.Invoke(this, consumedEventArgs);
     }
 

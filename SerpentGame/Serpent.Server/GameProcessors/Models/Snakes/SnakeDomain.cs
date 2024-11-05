@@ -1,11 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Serpent.Server.GameProcessors.GameSessions;
-using Serpent.Server.GameProcessors.Models.Consumables;
 using Serpent.Server.GameProcessors.Models.Consumables.Concrete;
-using Serpent.Server.GameProcessors.Models.Consumables.Events;
-using Serpent.Server.GameProcessors.Models.GameSettings;
-using Serpent.Server.GameProcessors.Models.Snakes.Commands;
 using Serpent.Server.GameProcessors.Models.Snakes.Events.ConsumeChecks;
 using Serpent.Server.GameProcessors.Models.Snakes.Events.WallCollisions;
 using Serpent.Server.GameProcessors.Models.Snakes.Segments;

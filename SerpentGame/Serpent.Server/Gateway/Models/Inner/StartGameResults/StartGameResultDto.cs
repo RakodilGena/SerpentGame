@@ -1,6 +1,4 @@
-﻿using Serpent.Server.Gateway.Models.Out.StartGameResponces;
-
-namespace Serpent.Server.Gateway.Models.Inner.StartGameResults;
+﻿namespace Serpent.Server.Gateway.Models.Inner.StartGameResults;
 
 public sealed class StartGameResultDto
 {

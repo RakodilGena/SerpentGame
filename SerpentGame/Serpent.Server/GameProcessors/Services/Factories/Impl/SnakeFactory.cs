@@ -3,7 +3,7 @@ using Serpent.Server.GameProcessors.Models.Snakes;
 using Serpent.Server.GameProcessors.Models.Snakes.Segments;
 using Serpent.Server.GameProcessors.Models.Snakes.Segments.Directions;
 
-namespace Serpent.Server.GameProcessors.Services.Impl;
+namespace Serpent.Server.GameProcessors.Services.Factories.Impl;
 
 internal sealed class SnakeFactory : ISnakeFactory
 {

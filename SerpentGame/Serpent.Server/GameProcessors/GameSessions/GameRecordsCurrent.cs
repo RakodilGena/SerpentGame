@@ -11,13 +11,13 @@ internal sealed class GameRecordsCurrent
     private const int GoldenAppleScoreModifier = 50;
     private const int ScissorsScoreModifier = 20;
 
-    public void OnCommonApplesEaten()
+    public void OnCommonAppleEaten()
     {
         CommonApplesEaten++;
         TotalScore += CommonAppleScoreModifier;
     }
 
-    public void OnGoldenApplesEaten()
+    public void OnGoldenAppleEaten()
     {
         GoldenApplesEaten++;
         TotalScore += GoldenAppleScoreModifier;
