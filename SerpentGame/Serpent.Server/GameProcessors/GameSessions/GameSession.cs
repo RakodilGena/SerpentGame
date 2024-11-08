@@ -1,5 +1,7 @@
-﻿using System.Diagnostics;
-using Serpent.Server.GameProcessors.GameSessions.UserInput;
+﻿using System.Collections.Frozen;
+using System.Diagnostics;
+using Serpent.Server.GameProcessors.GameSessions.Consumables;
+using Serpent.Server.GameProcessors.GameSessions.UserInputs;
 using Serpent.Server.GameProcessors.Models.Consumables;
 using Serpent.Server.GameProcessors.Models.Consumables.Base;
 using Serpent.Server.GameProcessors.Models.Consumables.Events;
@@ -12,16 +14,22 @@ namespace Serpent.Server.GameProcessors.GameSessions;
 
 internal sealed class GameSession : IGameSession
 {
+    private bool _paused;
+
     private readonly ILogger<GameSession> _logger;
     private readonly IConsumablesFactory _consumablesFactory;
-    private readonly UserInputAccessor _userInputAccessor = new();
+    private readonly UserInputAccessor _userInputAccessor;
 
     //entities
     private readonly SnakeDomain _snake;
-    private readonly List<ConsumableDomain> _consumables = new(3);
+    private readonly ConsumablesQueue _consumablesQueue;
+    private readonly List<ConsumableDomain> _consumables;
     private readonly GameRecordsCurrent _gameRecords;
 
     private readonly GameSettings _gameSettings;
+
+    private readonly Stopwatch _gameClock = new();
+    private readonly Stopwatch _stepClock = new();
 
     //not being locked cz I don't care of one extra game cycle even if one appears one in 50 years.
     private bool _gameFinished;
@@ -46,17 +54,35 @@ internal sealed class GameSession : IGameSession
 
         _consumablesFactory = consumablesFactory;
         _consumablesFactory.Initialize(gameSettings.FieldSettings);
+
+        _consumables = new List<ConsumableDomain>(3);
+        _consumablesQueue = new ConsumablesQueue(enqueueAllConsumables: true);
+        _userInputAccessor = new UserInputAccessor();
     }
 
     public async void RunGame()
     {
+        _gameClock.Start();
+
+        var stepElapsedTime = TimeSpan.Zero;
+
         //endless game cycle while snake not dead
         while (!_gameFinished)
         {
-            await Task.Delay(_gameSettings.GameSessionSleepTime);
+            var delay = _gameSettings.GameSessionSleepTime - stepElapsedTime;
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay);
+
+            //before new tick
+            _stepClock.Restart();
+
             GameCycleTick();
 
             //todo send game data to client.
+
+            //after all the actions on tick
+            _stepClock.Stop();
+            stepElapsedTime = _stepClock.Elapsed;
         }
 
 
@@ -68,9 +94,26 @@ internal sealed class GameSession : IGameSession
 
     private void GameCycleTick()
     {
-        var userInput = GetLastUserInput();
-        //todo move snake, generate and eat things, increase records
+        var (userInput, pauseButtonPressed) = _userInputAccessor.GetUserInputExclusively();
 
+        //game unpauses OR wasn't paused and pause not requested.
+        if (_paused == pauseButtonPressed)
+        {
+            _paused = false;
+            GameCycleTickUnpaused(userInput);
+            return;
+        }
+
+        //game pauses, or was paused and unpause not requested.
+        if (_paused != pauseButtonPressed)
+            _paused = true;
+    }
+
+    private void GameCycleTickUnpaused(UserInputDomain userInput)
+    {
+        _snake.Move(userInput);
+
+        ProcessConsumableQueue();
 
         //should always be at the end of method so expirables react correctly.
         Tick?.Invoke(this, EventArgs.Empty);
@@ -78,7 +121,61 @@ internal sealed class GameSession : IGameSession
 
     public void ApplyUserInput(UserInputDomain userInput) => _userInputAccessor.ApplyUserInputExclusively(userInput);
 
-    private UserInputDomain GetLastUserInput() => _userInputAccessor.GetUserInputExclusively();
+    private void ProcessConsumableQueue()
+    {
+        var tickResult = _consumablesQueue.Tick();
+
+        //todo log added consumables
+
+        if (tickResult.CreateCommonApple)
+        {
+            var (x, y) = GetFreeSpaceForConsumable();
+            var apple = _consumablesFactory.CreateCommonApple(x, y);
+            AddConsumable(apple);
+        }
+
+        if (tickResult.CreateGoldenApple)
+        {
+            var (x, y) = GetFreeSpaceForConsumable();
+            var goldenApple = _consumablesFactory.CreateGoldenApple(x, y);
+            AddExpirableConsumable(goldenApple);
+        }
+
+        if (tickResult.CreateScissors)
+        {
+            var (x, y) = GetFreeSpaceForConsumable();
+            var scissors = _consumablesFactory.CreateScissors(x, y);
+            AddExpirableConsumable(scissors);
+        }
+    }
+
+    private (int x, int y) GetFreeSpaceForConsumable()
+    {
+        IEnumerable<(int x, int y)> busySpotsTmp =
+        [
+            .._snake.AllSegments.Select(s => (s.X, s.Y)),
+            .._consumables.Select(c => (c.X, c.Y))
+        ];
+
+        var busySpots = busySpotsTmp.ToFrozenSet();
+
+        var maxPos = _gameSettings.FieldSettings.MaxPosition;
+
+        var list = new List<(int x, int y)>(capacity: (maxPos + 1) * (maxPos + 1));
+
+        for (int x = 0; x <= maxPos; x++)
+        for (int y = 0; y <= maxPos; y++)
+        {
+            var point = (x, y);
+            if (busySpots.Contains(point))
+                continue;
+
+            list.Add(point);
+        }
+
+        var freeSpotIndex = Random.Shared.Next(0, list.Count);
+        return list[freeSpotIndex];
+    }
 
     private void OnWallCollisionCheck(WallCollisionCheckEventArgs eventArgs)
     {
@@ -143,9 +240,11 @@ internal sealed class GameSession : IGameSession
         if (sender is not ExpirableConsumableDomain expirableConsumable)
             return;
 
+        //todo log expiration
+
         RemoveExpirableConsumable(expirableConsumable);
 
-        RegisterNewConsumable(e.ConsumableType);
+        QueueNewConsumable(e.ConsumableType);
     }
 
     private void OnConsumed(object? sender, ConsumedEventArgs e)
@@ -153,9 +252,11 @@ internal sealed class GameSession : IGameSession
         if (sender is not ConsumableDomain consumable)
             return;
 
+        //todo log consumation
+
         RemoveConsumable(consumable);
 
-        RegisterNewConsumable(e.ConsumableType);
+        QueueNewConsumable(e.ConsumableType);
         ApplyRecords(e.ConsumableType);
     }
 
@@ -165,7 +266,7 @@ internal sealed class GameSession : IGameSession
         Tick -= expirableConsumable.OnTick;
         RemoveConsumable(expirableConsumable);
     }
-    
+
     private void RemoveConsumable(ConsumableDomain consumable)
     {
         _snake.ConsumeCheck -= consumable.OnConsumeCheck;
@@ -173,38 +274,53 @@ internal sealed class GameSession : IGameSession
         _consumables.Remove(consumable);
     }
 
-    private void RegisterNewConsumable(
-        ConsumableType type)
+    private void QueueNewConsumable(
+        ConsumableTypeDomain type)
     {
+        //todo log queue
         switch (type)
         {
-            case ConsumableType.CommonApple:
-                //todo create apple queue with 0
+            case ConsumableTypeDomain.CommonApple:
+                _consumablesQueue.EnqueueCommonApple();
                 break;
 
-            case ConsumableType.GoldenApple:
-                //todo create golden apple queue
+            case ConsumableTypeDomain.GoldenApple:
+                _consumablesQueue.EnqueueGoldenApple();
                 break;
 
-            case ConsumableType.Scissors:
-                //todo create scissors queue
+            case ConsumableTypeDomain.Scissors:
+                _consumablesQueue.EnqueueScissors();
                 break;
         }
     }
 
-    private void ApplyRecords(ConsumableType type)
+    private void AddExpirableConsumable(ExpirableConsumableDomain expirableConsumable)
+    {
+        expirableConsumable.Expire += OnExpired;
+        Tick += expirableConsumable.OnTick;
+        AddConsumable(expirableConsumable);
+    }
+
+    private void AddConsumable(ConsumableDomain consumable)
+    {
+        _snake.ConsumeCheck += consumable.OnConsumeCheck;
+        consumable.Consumed += OnConsumed;
+        _consumables.Add(consumable);
+    }
+
+    private void ApplyRecords(ConsumableTypeDomain type)
     {
         switch (type)
         {
-            case ConsumableType.CommonApple:
+            case ConsumableTypeDomain.CommonApple:
                 _gameRecords.OnCommonAppleEaten();
                 break;
 
-            case ConsumableType.GoldenApple:
+            case ConsumableTypeDomain.GoldenApple:
                 _gameRecords.OnGoldenAppleEaten();
                 break;
 
-            case ConsumableType.Scissors:
+            case ConsumableTypeDomain.Scissors:
                 _gameRecords.OnScissorsEaten();
                 break;
 
@@ -217,6 +333,7 @@ internal sealed class GameSession : IGameSession
     public void RequestFinishGame()
     {
         _gameFinished = true;
-        GameFinished?.Invoke(this, EventArgs.Empty);
+        _snake.WallCollisionCheck -= OnWallCollisionCheck;
+        _snake.BodyCollided -= OnBodyCollided;
     }
 }

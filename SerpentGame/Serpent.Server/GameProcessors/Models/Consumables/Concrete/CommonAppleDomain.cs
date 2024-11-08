@@ -8,5 +8,5 @@ internal sealed class CommonAppleDomain : ConsumableDomain
     {
     }
 
-    protected override ConsumableType GetConsumableType() => ConsumableType.CommonApple;
+    protected override ConsumableTypeDomain GetConsumableType() => ConsumableTypeDomain.CommonApple;
 }

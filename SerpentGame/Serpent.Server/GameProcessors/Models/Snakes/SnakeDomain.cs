@@ -74,6 +74,8 @@ internal sealed class SnakeDomain
         MoveTail();
         MoveBody();
         MoveHead(newHeadPosition);
+        
+        //todo log move
         CheckIfHeadNotCollidedBody();
     }
 
@@ -103,6 +105,7 @@ internal sealed class SnakeDomain
         _body.Insert(0, newSegment);
         
         MoveHead(newHeadPosition);
+        //todo log move
     }
 
     private void MoveEatenScissors(NewHeadPosition newHeadPosition, int segmentsToCut)
@@ -114,6 +117,7 @@ internal sealed class SnakeDomain
         MoveTail();
         MoveBody();
         MoveHead(newHeadPosition);
+        //todo log move
         
         //no body collision possible
     }

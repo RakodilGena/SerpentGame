@@ -9,5 +9,5 @@ internal sealed class GoldenAppleDomain : ExpirableConsumableDomain
     {
     }
 
-    protected override ConsumableType GetConsumableType() => ConsumableType.GoldenApple;
+    protected override ConsumableTypeDomain GetConsumableType() => ConsumableTypeDomain.GoldenApple;
 }

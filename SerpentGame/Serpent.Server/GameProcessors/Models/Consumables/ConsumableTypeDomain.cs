@@ -1,6 +1,6 @@
 ﻿namespace Serpent.Server.GameProcessors.Models.Consumables;
 
-internal enum ConsumableType
+internal enum ConsumableTypeDomain
 {
     CommonApple,
     GoldenApple,

@@ -30,5 +30,5 @@ internal abstract class ConsumableDomain
         Consumed?.Invoke(this, consumedEventArgs);
     }
 
-    protected abstract ConsumableType GetConsumableType();
+    protected abstract ConsumableTypeDomain GetConsumableType();
 }

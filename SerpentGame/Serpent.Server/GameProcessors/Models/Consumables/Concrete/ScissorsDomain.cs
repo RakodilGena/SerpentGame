@@ -14,5 +14,5 @@ internal sealed class ScissorsDomain : ExpirableConsumableDomain
         SegmentsToCut = segmentsToCut;
     }
 
-    protected override ConsumableType GetConsumableType() => ConsumableType.Scissors;
+    protected override ConsumableTypeDomain GetConsumableType() => ConsumableTypeDomain.Scissors;
 }
